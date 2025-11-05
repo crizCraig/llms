@@ -50,7 +50,6 @@ export class ReasoningTransformer implements Transformer {
       let reasoningContent = "";
       let isReasoningComplete = false;
       let buffer = ""; // Buffer for incomplete data
-      let reasoningSignature: string | undefined = undefined;
 
       const stream = new ReadableStream({
         async start(controller) {
@@ -95,9 +94,6 @@ export class ReasoningTransformer implements Transformer {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning_content
                   );
-                  if (!reasoningSignature) {
-                    reasoningSignature = Date.now().toString();
-                  }
                   const thinkingChunk = {
                     ...data,
                     choices: [
@@ -107,7 +103,6 @@ export class ReasoningTransformer implements Transformer {
                           ...data.choices[0].delta,
                           thinking: {
                             content: data.choices[0].delta.reasoning_content,
-                            signature: reasoningSignature,
                           },
                         },
                       },
@@ -129,9 +124,6 @@ export class ReasoningTransformer implements Transformer {
                   !context.isReasoningComplete()
                 ) {
                   context.setReasoningComplete(true);
-                  const signature = reasoningSignature || Date.now().toString();
-                  reasoningSignature = signature;
-
                   // Create a new chunk with thinking block
                   const thinkingChunk = {
                     ...data,
@@ -143,7 +135,6 @@ export class ReasoningTransformer implements Transformer {
                           content: null,
                           thinking: {
                             content: context.reasoningContent(),
-                            signature: signature,
                           },
                         },
                       },

@@ -68,7 +68,7 @@ export class OpenrouterTransformer implements Transformer {
       let isReasoningComplete = false;
       let hasToolCall = false;
       let buffer = ""; // 用于缓冲不完整的数据
-      let reasoningSignature: string | undefined = undefined;
+      // No synthetic signature generation; only pass through upstream data
 
       const logger = this.logger;
       const stream = new ReadableStream({
@@ -138,9 +138,6 @@ export class OpenrouterTransformer implements Transformer {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning
                   );
-                  if (!reasoningSignature) {
-                    reasoningSignature = Date.now().toString();
-                  }
                   const thinkingChunk = {
                     ...data,
                     choices: [
@@ -150,7 +147,6 @@ export class OpenrouterTransformer implements Transformer {
                           ...data.choices[0].delta,
                           thinking: {
                             content: data.choices[0].delta.reasoning,
-                            signature: reasoningSignature,
                           },
                         },
                       },
@@ -173,9 +169,6 @@ export class OpenrouterTransformer implements Transformer {
                   !context.isReasoningComplete()
                 ) {
                   context.setReasoningComplete(true);
-                  const signature = reasoningSignature || Date.now().toString();
-                  reasoningSignature = signature;
-
                   const thinkingChunk = {
                     ...data,
                     choices: [
@@ -186,7 +179,6 @@ export class OpenrouterTransformer implements Transformer {
                           content: null,
                           thinking: {
                             content: context.reasoningContent(),
-                            signature: signature,
                           },
                         },
                       },

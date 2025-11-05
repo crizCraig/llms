@@ -159,10 +159,6 @@ export class PolychatTransformer implements Transformer {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning
                   );
-                  // Ensure we have a signature to attach to all thinking chunks
-                  if (!preservedSignature) {
-                    preservedSignature = Date.now().toString();
-                  }
                   const thinkingChunk = {
                     ...data,
                     choices: [
