@@ -68,6 +68,7 @@ export class VercelTransformer implements Transformer {
       let isReasoningComplete = false;
       let hasToolCall = false;
       let buffer = ""; // Buffer for incomplete data
+      let reasoningSignature: string | undefined = undefined;
 
       const stream = new ReadableStream({
         async start(controller) {
@@ -136,6 +137,9 @@ export class VercelTransformer implements Transformer {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning
                   );
+                  if (!reasoningSignature) {
+                    reasoningSignature = Date.now().toString();
+                  }
                   const thinkingChunk = {
                     ...data,
                     choices: [
@@ -145,6 +149,7 @@ export class VercelTransformer implements Transformer {
                           ...data.choices[0].delta,
                           thinking: {
                             content: data.choices[0].delta.reasoning,
+                            signature: reasoningSignature,
                           },
                         },
                       },
@@ -167,7 +172,8 @@ export class VercelTransformer implements Transformer {
                   !context.isReasoningComplete()
                 ) {
                   context.setReasoningComplete(true);
-                  const signature = Date.now().toString();
+                  const signature = reasoningSignature || Date.now().toString();
+                  reasoningSignature = signature;
 
                   const thinkingChunk = {
                     ...data,

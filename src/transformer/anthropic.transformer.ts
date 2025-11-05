@@ -127,34 +127,11 @@ export class AnthropicTransformer implements Transformer {
               });
             }
           } else if (msg.role === "assistant") {
+            // Preserve assistant content blocks (thinking, text, tool_use) as-is
             const assistantMessage: UnifiedMessage = {
               role: "assistant",
-              content: "",
+              content: msg.content as any,
             };
-            const textParts = msg.content.filter(
-              (c: any) => c.type === "text" && c.text
-            );
-            if (textParts.length) {
-              assistantMessage.content = textParts
-                .map((text: any) => text.text)
-                .join("\n");
-            }
-
-            const toolCallParts = msg.content.filter(
-              (c: any) => c.type === "tool_use" && c.id
-            );
-            if (toolCallParts.length) {
-              assistantMessage.tool_calls = toolCallParts.map((tool: any) => {
-                return {
-                  id: tool.id,
-                  type: "function" as const,
-                  function: {
-                    name: tool.name,
-                    arguments: JSON.stringify(tool.input || {}),
-                  },
-                };
-              });
-            }
             messages.push(assistantMessage);
           }
           return;

@@ -2,8 +2,8 @@ import { UnifiedChatRequest } from "@/types/llm";
 import { Transformer, TransformerOptions } from "@/types/transformer";
 import { v4 as uuidv4 } from "uuid";
 
-export class OpenrouterTransformer implements Transformer {
-  static TransformerName = "openrouter";
+export class PolychatTransformer implements Transformer {
+  static TransformerName = "polychat";
   logger?: any;
 
   constructor(private readonly options?: TransformerOptions) {}
@@ -11,6 +11,7 @@ export class OpenrouterTransformer implements Transformer {
   async transformRequestIn(
     request: UnifiedChatRequest
   ): Promise<UnifiedChatRequest> {
+    this.logger?.debug({ model: request.model }, 'transformRequestIn called');
     if (!request.model.includes("claude")) {
       request.messages.forEach((msg) => {
         if (Array.isArray(msg.content)) {
@@ -50,6 +51,7 @@ export class OpenrouterTransformer implements Transformer {
   async transformResponseOut(response: Response): Promise<Response> {
     if (response.headers.get("Content-Type")?.includes("application/json")) {
       const jsonResponse = await response.json();
+      this.logger?.debug({ jsonResponse }, 'transformResponseOut - JSON response');
       return new Response(JSON.stringify(jsonResponse), {
         status: response.status,
         statusText: response.statusText,
@@ -68,9 +70,9 @@ export class OpenrouterTransformer implements Transformer {
       let isReasoningComplete = false;
       let hasToolCall = false;
       let buffer = ""; // 用于缓冲不完整的数据
-      let reasoningSignature: string | undefined = undefined;
+      let preservedSignature: string | undefined = undefined; // preserve upstream signature if provided
+      const logger = this.logger; // Capture logger reference for stream
 
-      const logger = this.logger;
       const stream = new ReadableStream({
         async start(controller) {
           const reader = response.body!.getReader();
@@ -106,22 +108,37 @@ export class OpenrouterTransformer implements Transformer {
               const jsonStr = line.slice(6);
               try {
                 const data = JSON.parse(jsonStr);
+
+                // Capture any upstream-provided signature and preserve it
+                const possibleSignature =
+                  data?.signature ||
+                  data?.choices?.[0]?.delta?.signature ||
+                  data?.choices?.[0]?.message?.signature ||
+                  data?.choices?.[0]?.delta?.thinking?.signature ||
+                  data?.choices?.[0]?.delta?.redacted_thinking?.signature;
+                if (possibleSignature && !preservedSignature) {
+                  preservedSignature = possibleSignature;
+                }
                 if (data.usage) {
                   logger?.debug(
                     { usage: data.usage, hasToolCall },
                     "usage"
                   );
+                  // Skip empty usage chunks
+                  if (data.usage.input_tokens === 0 && data.usage.output_tokens === 0) {
+                    return;
+                  }
                   data.choices[0].finish_reason = hasToolCall
                     ? "tool_calls"
                     : "stop";
                 }
 
                 if (data.choices?.[0]?.finish_reason === "error") {
+                  const errorData = { error: data.choices?.[0].error };
+                  logger?.debug({ streamChunk: errorData }, 'transformResponseOut - error chunk');
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        error: data.choices?.[0].error,
-                      })}\n\n`
+                      `data: ${JSON.stringify(errorData)}\n\n`
                     )
                   );
                 }
@@ -134,12 +151,17 @@ export class OpenrouterTransformer implements Transformer {
                 }
 
                 // Extract reasoning_content from delta
-                if (data.choices?.[0]?.delta?.reasoning) {
+                if (
+                  data.choices?.[0]?.delta?.reasoning &&
+                  !data?.choices?.[0]?.delta?.thinking &&
+                  !data?.choices?.[0]?.delta?.redacted_thinking
+                ) {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning
                   );
-                  if (!reasoningSignature) {
-                    reasoningSignature = Date.now().toString();
+                  // Ensure we have a signature to attach to all thinking chunks
+                  if (!preservedSignature) {
+                    preservedSignature = Date.now().toString();
                   }
                   const thinkingChunk = {
                     ...data,
@@ -150,7 +172,9 @@ export class OpenrouterTransformer implements Transformer {
                           ...data.choices[0].delta,
                           thinking: {
                             content: data.choices[0].delta.reasoning,
-                            signature: reasoningSignature,
+                            ...(preservedSignature
+                              ? { signature: preservedSignature }
+                              : {}),
                           },
                         },
                       },
@@ -162,6 +186,7 @@ export class OpenrouterTransformer implements Transformer {
                   const thinkingLine = `data: ${JSON.stringify(
                     thinkingChunk
                   )}\n\n`;
+                  logger?.debug({ streamChunk: thinkingChunk }, 'transformResponseOut - thinking chunk (reasoning)');
                   controller.enqueue(encoder.encode(thinkingLine));
                   return;
                 }
@@ -173,8 +198,6 @@ export class OpenrouterTransformer implements Transformer {
                   !context.isReasoningComplete()
                 ) {
                   context.setReasoningComplete(true);
-                  const signature = reasoningSignature || Date.now().toString();
-                  reasoningSignature = signature;
 
                   const thinkingChunk = {
                     ...data,
@@ -186,7 +209,9 @@ export class OpenrouterTransformer implements Transformer {
                           content: null,
                           thinking: {
                             content: context.reasoningContent(),
-                            signature: signature,
+                            ...(preservedSignature
+                              ? { signature: preservedSignature }
+                              : {}),
                           },
                         },
                       },
@@ -198,6 +223,7 @@ export class OpenrouterTransformer implements Transformer {
                   const thinkingLine = `data: ${JSON.stringify(
                     thinkingChunk
                   )}\n\n`;
+                  logger?.debug({ streamChunk: thinkingChunk }, 'transformResponseOut - thinking chunk (complete)');
                   controller.enqueue(encoder.encode(thinkingLine));
                 }
 
@@ -234,9 +260,11 @@ export class OpenrouterTransformer implements Transformer {
                 }
 
                 const modifiedLine = `data: ${JSON.stringify(data)}\n\n`;
+                logger?.debug({ streamChunk: data }, 'transformResponseOut - stream chunk');
                 controller.enqueue(encoder.encode(modifiedLine));
               } catch (e) {
                 // 如果JSON解析失败，可能是数据不完整，将原始行传递下去
+                // If JSON parsing fails, the data may be incomplete, so pass the original line through
                 controller.enqueue(encoder.encode(line + "\n"));
               }
             } else {

@@ -265,6 +265,7 @@ export function convertFromAnthropic(
   }
   const pendingToolCalls: any[] = [];
   const pendingTextContent: string[] = [];
+  let pendingThinking: { content: string; signature?: string } | null = null;
   let lastRole: string | null = null;
 
   for (let i = 0; i < request.messages.length; i++) {
@@ -285,9 +286,13 @@ export function convertFromAnthropic(
         if (assistantMessage.tool_calls && pendingTextContent.length === 0) {
           assistantMessage.content = null;
         }
+        if (pendingThinking) {
+          assistantMessage.thinking = pendingThinking;
+        }
         messages.push(assistantMessage);
         pendingToolCalls.length = 0;
         pendingTextContent.length = 0;
+        pendingThinking = null;
       }
 
       messages.push({
@@ -298,6 +303,7 @@ export function convertFromAnthropic(
       const textBlocks: string[] = [];
       const toolCalls: any[] = [];
       const toolResults: any[] = [];
+      let thinkingBlock: { content: string; signature?: string } | null = null;
 
       msg.content.forEach((block) => {
         if (block.type === "text") {
@@ -313,6 +319,11 @@ export function convertFromAnthropic(
           });
         } else if (block.type === "tool_result") {
           toolResults.push(block);
+        } else if (block.type === "thinking") {
+          thinkingBlock = {
+            content: block.thinking || "",
+            signature: block.signature,
+          };
         }
       });
 
@@ -326,9 +337,13 @@ export function convertFromAnthropic(
           if (pendingTextContent.length === 0) {
             assistantMessage.content = null;
           }
+          if (pendingThinking) {
+            assistantMessage.thinking = pendingThinking;
+          }
           messages.push(assistantMessage);
           pendingToolCalls.length = 0;
           pendingTextContent.length = 0;
+          pendingThinking = null;
         }
 
         toolResults.forEach((toolResult) => {
@@ -345,6 +360,9 @@ export function convertFromAnthropic(
         if (lastRole === "assistant") {
           pendingToolCalls.push(...toolCalls);
           pendingTextContent.push(...textBlocks);
+          if (thinkingBlock) {
+            pendingThinking = thinkingBlock;
+          }
         } else {
           if (pendingToolCalls.length > 0) {
             const prevAssistantMessage: UnifiedMessage = {
@@ -355,11 +373,15 @@ export function convertFromAnthropic(
             if (pendingTextContent.length === 0) {
               prevAssistantMessage.content = null;
             }
+            if (pendingThinking) {
+              prevAssistantMessage.thinking = pendingThinking;
+            }
             messages.push(prevAssistantMessage);
           }
 
           pendingToolCalls.length = 0;
           pendingTextContent.length = 0;
+          pendingThinking = thinkingBlock;
           pendingToolCalls.push(...toolCalls);
           pendingTextContent.push(...textBlocks);
         }
@@ -373,9 +395,13 @@ export function convertFromAnthropic(
           if (pendingTextContent.length === 0) {
             assistantMessage.content = null;
           }
+          if (pendingThinking) {
+            assistantMessage.thinking = pendingThinking;
+          }
           messages.push(assistantMessage);
           pendingToolCalls.length = 0;
           pendingTextContent.length = 0;
+          pendingThinking = null;
         }
 
         const message: UnifiedMessage = {
@@ -402,9 +428,13 @@ export function convertFromAnthropic(
         if (pendingTextContent.length === 0) {
           assistantMessage.content = null;
         }
+        if (pendingThinking) {
+          assistantMessage.thinking = pendingThinking;
+        }
         messages.push(assistantMessage);
         pendingToolCalls.length = 0;
         pendingTextContent.length = 0;
+        pendingThinking = null;
       }
 
       messages.push({
@@ -424,6 +454,9 @@ export function convertFromAnthropic(
     };
     if (pendingTextContent.length === 0) {
       assistantMessage.content = null;
+    }
+    if (pendingThinking) {
+      assistantMessage.thinking = pendingThinking;
     }
     messages.push(assistantMessage);
   }

@@ -30,6 +30,7 @@ export class DeepseekTransformer implements Transformer {
       let reasoningContent = "";
       let isReasoningComplete = false;
       let buffer = ""; // 用于缓冲不完整的数据
+      let reasoningSignature: string | undefined = undefined;
 
       const stream = new ReadableStream({
         async start(controller) {
@@ -72,6 +73,9 @@ export class DeepseekTransformer implements Transformer {
                   context.appendReasoningContent(
                     data.choices[0].delta.reasoning_content
                   );
+                  if (!reasoningSignature) {
+                    reasoningSignature = Date.now().toString();
+                  }
                   const thinkingChunk = {
                     ...data,
                     choices: [
@@ -81,6 +85,7 @@ export class DeepseekTransformer implements Transformer {
                           ...data.choices[0].delta,
                           thinking: {
                             content: data.choices[0].delta.reasoning_content,
+                            signature: reasoningSignature,
                           },
                         },
                       },
@@ -101,7 +106,8 @@ export class DeepseekTransformer implements Transformer {
                   !context.isReasoningComplete()
                 ) {
                   context.setReasoningComplete(true);
-                  const signature = Date.now().toString();
+                  const signature = reasoningSignature || Date.now().toString();
+                  reasoningSignature = signature;
 
                   // Create a new chunk with thinking block
                   const thinkingChunk = {
